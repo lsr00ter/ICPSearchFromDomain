@@ -102,7 +102,7 @@ async fn process_excel(excel_path: &str, column_name: &str) -> Result<(), Box<dy
             .position(|h| h == column_name)
             .ok_or("Column not found")?;
 
-        // 收集所有不重复的域名和它们在Excel中的位置
+        // 收集所有不重复的域名和它们在 Excel 中的位置
         let mut domain_positions: HashMap<String, Vec<(u32, u16)>> = HashMap::new();
         for (row_idx, row) in range.rows().enumerate().skip(1) {
             if let Some(cell) = row.get(column_index) {
@@ -274,9 +274,32 @@ async fn fetch_data(url: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
     let uuid = get_uuid();
     let cookie_str = format!("machine_str={}", uuid);
     let client = Client::new();
-    let response = client.get(url).header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36").header("Cookie", cookie_str).send().await?;
-    let body = response.text().await?;
-    Ok(body)
+    
+    let mut retries = 0;
+    let max_retries = 3;
+    let delay = std::time::Duration::from_secs(3);
+
+    loop {
+        match client.get(url)
+            .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36")
+            .header("Cookie", &cookie_str)
+            .send()
+            .await {
+                Ok(response) => {
+                    let body = response.text().await?;
+                    break Ok(body);
+                }
+                Err(e) => {
+                    retries += 1;
+                    if retries >= max_retries {
+                        return Err(Box::new(e));
+                    }
+                    eprintln!("Connection error (attempt {}/{}), retrying in {} seconds...", 
+                        retries, max_retries, delay.as_secs());
+                    tokio::time::sleep(delay).await;
+                }
+        }
+    }
 }
 
 fn create_file_if_not_exists(file_path: &str) {
